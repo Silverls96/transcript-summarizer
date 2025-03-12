@@ -5,7 +5,7 @@ import argparse
 from rich.console import Console
 from dotenv import load_dotenv
 from litellm import completion
-
+from prompt import PROMPT
 
 # Load environment variables
 load_dotenv()
