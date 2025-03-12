@@ -105,6 +105,9 @@ def process_audio_file(file_path):
     os.makedirs(transcribe_dir, exist_ok=True)
     os.makedirs(response_dir, exist_ok=True)
     
+    # Save results with timing information
+    base_name = os.path.splitext(os.path.basename(file_path))[0]
+
     # Save transcription with timing info
     transcription_path = os.path.join(transcribe_dir, f"{base_name}_transcription.txt")
     with open(transcription_path, 'w') as f:
