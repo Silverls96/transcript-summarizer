@@ -4,3 +4,4 @@ langchain
 rich
 langchain-community
 litellm
+setuptools-rust

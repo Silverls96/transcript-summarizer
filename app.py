@@ -1,14 +1,22 @@
-import time
 import os
-import threading
-import numpy as np
+import time
 import whisper
+import argparse
 from rich.console import Console
+from dotenv import load_dotenv
 from litellm import completion
-from prompt import PROMPT
 
+
+# Load environment variables
+load_dotenv()
+
+# Initialize console
 console = Console()
+
+# Load Whisper model
 stt = whisper.load_model("turbo")
+
+# Get API key and model
 api_key = os.environ.get("OPENROUTER_API_KEY")
 api_model = os.environ.get("LLM_MODEL")
 
@@ -24,7 +32,7 @@ def get_llm_response(text: str) -> str:
     """
     response = completion(
         model=api_model,  # Using Deepseek via OpenRouter
-        messages=[{"role": "user", "content": PROMPT}],
+        messages=[{"role": "user", "content": PROMPT.format(text=text)}],
         api_key=api_key
     )
     
@@ -32,36 +40,33 @@ def get_llm_response(text: str) -> str:
     return response.choices[0].message.content.strip()
 
 
+# Define function to transcribe audio
 def transcribe(audio_file) -> str:
     """
-    Transcribes the given audio data using the Whisper speech recognition model.
+    Transcribes the given audio file using Whisper.
 
     Args:
-        audio file: The audio data to be transcribed.
+        audio_file (str): Path to the audio file.
 
     Returns:
         str: The transcribed text.
     """
     result = stt.transcribe(audio_file, fp16=False, language="id")  # Set fp16=True if using a GPU
-    text = result["text"].strip()
-    return text
+    return result["text"].strip()
 
-def transcribe(audio_tensor):
+
+def transcribe_mel(audio_tensor):
     options = whisper.DecodingOptions(language="id")
     result = whisper.decode(stt, audio_tensor, options)
     text = result.text.strip()
     return text
 
-def process_audio_file(file_path, output_dir=None):
+def process_audio_file(file_path):
     """
     Process a single audio file: transcribe it and generate an LLM response.
     
     Args:
-        file_path (str): Path to the audio file
-        output_dir (str, optional): Directory to save output files
-    
-    Returns:
-        tuple: (transcription, llm_response)
+        file_path (str): Path to the audio file.
     """
     console.print(f"[cyan]Processing file: {file_path}")
     
@@ -75,40 +80,46 @@ def process_audio_file(file_path, output_dir=None):
     #     mel = whisper.log_mel_spectrogram(audio, stt.dims.n_mels).to(stt.device)
     # # Transcribe
     # with console.status("Transcribing...", spinner="earth"):
-    #     transcription = transcribe(mel)
-    
+    #     transcription = transcribe_mel(mel)
         
-    # Transcribe
-    with console.status("Transcribing...", spinner="earth"):
-        transcription = transcribe(file_path)
+    # Transcribe with timer
+    start_transcription = time.time()
+    transcription = transcribe(file_path)
+    end_transcription = time.time()
+    transcription_time = end_transcription - start_transcription
+
     console.print(f"[yellow]Transcription: {transcription}")
     
-    # Generate response
-    with console.status("Generating response...", spinner="earth"):
-        response = get_llm_response(transcription)
+    # Generate response with timer
+    start_response = time.time()
+    response = get_llm_response(transcription)
+    end_response = time.time()
+    response_time = end_response - start_response
+   
     console.print(f"[cyan]Assistant response: {response}")
     
-    # Save results if output directory is provided
-    if output_dir:
-        # Create output directory if it doesn't exist
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
-            
-        base_name = os.path.splitext(os.path.basename(file_path))[0]
-        
-        # Save transcription to a separate file
-        transcription_path = os.path.join(output_dir, f"{base_name}_transcription.txt")
-        with open(transcription_path, 'w') as f:
-            f.write(transcription)
-        console.print(f"[green]Transcription saved to {transcription_path}")
-        
-        # Save LLM response to a separate file
-        response_path = os.path.join(output_dir, f"{base_name}_response.txt")
-        with open(response_path, 'w') as f:
-            f.write(response)
-        console.print(f"[green]Response saved to {response_path}")
+    # Create output directories if they don't exist
+    transcribe_dir = "transcribe"
+    response_dir = "response"
     
-    return transcription, response
+    os.makedirs(transcribe_dir, exist_ok=True)
+    os.makedirs(response_dir, exist_ok=True)
+    
+    # Save transcription with timing info
+    transcription_path = os.path.join(transcribe_dir, f"{base_name}_transcription.txt")
+    with open(transcription_path, 'w') as f:
+        f.write(f"Transcription Time: {transcription_time:.2f} seconds\n")
+        f.write(transcription)
+    
+    console.print(f"[green]Transcription saved to {transcription_path}")
+    
+    # Save response with timing info
+    response_path = os.path.join(response_dir, f"{base_name}_response.txt")
+    with open(response_path, 'w') as f:
+        f.write(f"Response Generation Time: {response_time:.2f} seconds\n")
+        f.write(response)
+    
+    console.print(f"[green]Response saved to {response_path}")
 
 
 def process_folder(folder_path, output_dir=None):
@@ -138,61 +149,60 @@ def process_folder(folder_path, output_dir=None):
     console.print(f"[blue]Found {len(wav_files)} .wav files in {folder_path}")
     
     # Process each file
-    results = []
     for file_path in wav_files:
+        if not os.path.exists(file_path):
+            console.print(
+                f"[red]ERROR: File {file_path} does not exist!  "
+                "Skipping this file."
+            )
+            continue  # Skip to the next file
+
         try:
-            result = process_audio_file(file_path, output_dir)
-            results.append((file_path, result))
+            process_audio_file(file_path, output_dir)
+            # results.append((file_path, result))
         except Exception as e:
             console.print(f"[red]Error processing {file_path}: {str(e)}")
-    
-    # Save a summary file
-    if output_dir and results:
-        summary_path = os.path.join(output_dir, "processing_summary.txt")
-        with open(summary_path, 'w') as f:
-            f.write(f"Processing summary for folder: {folder_path}\n")
-            f.write(f"Processed at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-            f.write(f"Total files processed: {len(results)}\n\n")
-            
-            for file_path, (transcription, response) in results:
-                f.write(f"File: {os.path.basename(file_path)}\n")
-                f.write(f"Transcription: {transcription}\n")
-                f.write(f"Response: {response}\n\n")
-                
-        console.print(f"[green]Summary saved to {summary_path}")
-    
-    return results
 
-
-def process_multiple_folders(folders, output_base_dir=None):
+def process_text_for_response(text, output_dir=None):
     """
-    Process multiple folders containing audio files.
+    Process a text input and generate an LLM response.
     
     Args:
-        folders (list): List of folder paths
-        output_base_dir (str, optional): Base directory for output files
+        text (str): The input text.
+        output_dir (str, optional): Directory to save response file.
     """
-    all_results = {}
+    console.print(f"[cyan]Processing text: {text}")
     
-    for folder in folders:
-        folder_name = os.path.basename(os.path.normpath(folder))
-        output_dir = None
-        if output_base_dir:
-            output_dir = os.path.join(output_base_dir, folder_name)
-            
-        console.print(f"[blue]Processing folder: {folder}")
-        results = process_folder(folder, output_dir)
-        all_results[folder] = results
+    # Generate response with timer
+    start_response = time.time()
+    response = get_llm_response(text)
+    end_response = time.time()
+    response_time = end_response - start_response
+    
+    console.print(f"[cyan]Assistant response: {response}")
+    
+    # Save response with timing information
+    if output_dir:
+        # Create output directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
         
-    return all_results
+        # Save response to a file
+        response_path = os.path.join(output_dir, "response.txt")
+        with open(response_path, 'w') as f:
+            f.write(f"Response Generation Time: {response_time:.2f} seconds\n")
+            f.write(response)
+        
+        console.print(f"[green]Response saved to {response_path}")
 
+
+# Define function to process text files for response generation
 def process_text_files(file_paths, output_dir=None):
     """
     Process specific text files and generate LLM responses for them.
     
     Args:
-        file_paths (list): List of text file paths
-        output_dir (str, optional): Directory to save response files
+        file_paths (list): List of text file paths.
+        output_dir (str, optional): Directory to save response files.
     """
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -218,19 +228,9 @@ def process_text_files(file_paths, output_dir=None):
             console.print(f"[yellow]Text content: {text}")
             
             # Generate response
-            with console.status("Generating response...", spinner="earth"):
-                response = get_llm_response(text)
-            console.print(f"[cyan]Assistant response: {response}")
+            process_text_for_response(text, output_dir)
             
-            # Save the response
-            if output_dir:
-                base_name = os.path.splitext(os.path.basename(file_path))[0]
-                response_path = os.path.join(output_dir, f"{base_name}_response.txt")
-                with open(response_path, 'w') as f:
-                    f.write(response)
-                console.print(f"[green]Response saved to {response_path}")
-                
-            results.append((file_path, text, response))
+            results.append((file_path, text))
             
         except Exception as e:
             console.print(f"[red]Error processing {file_path}: {str(e)}")
@@ -243,61 +243,31 @@ def process_text_files(file_paths, output_dir=None):
             f.write(f"Processed at: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
             f.write(f"Total files processed: {len(results)}\n\n")
             
-            for file_path, text, response in results:
+            for file_path, text in results:
                 f.write(f"File: {os.path.basename(file_path)}\n")
-                f.write(f"Text: {text}\n")
-                f.write(f"Response: {response}\n\n")
+                f.write(f"Text: {text}\n\n")
                 
         console.print(f"[green]Summary saved to {summary_path}")
     
     return results
 
-if __name__ == "__main__":
-    console.print("[cyan]Batch Audio Processing with Whisper and LiteLLM started!")
-    
-    try:
-        # Option 1: Process a single folder
-        # folder_path = input("Enter the path to the folder containing .wav files: ")
-        # output_dir = "output"
-        # process_folder(folder_path, output_dir)
-        
-        # Option 2: Process multiple folders
-        while True:
-            choice = console.input("[cyan]Choose an option:\n1. Process a single folder of audio files\n2. Process multiple folders of audio files\n3. Process specific text files\n4. Exit\nYour choice: ")
-            
-            if choice == "1":
-                folder_path = console.input("Enter the path to the folder containing .wav files: ")
-                output_dir = console.input("Enter the output directory (press Enter to use 'output'): ") or "output"
-                process_folder(folder_path, output_dir)
-                
-            elif choice == "2":
-                folders_input = console.input("Enter folder paths (separated by commas): ")
-                folders = [f.strip() for f in folders_input.split(",")]
-                output_dir = console.input("Enter the base output directory (press Enter to use 'output'): ") or "output"
-                process_multiple_folders(folders, output_dir)
-            elif choice == "3":
-                console.print("[cyan]Select text files to process:")
-                select_method = console.input("How would you like to select files?\n1. Enter file paths\n2. Browse interactively\nYour choice: ")
-                
-                if select_method == "1":
-                    files_input = console.input("Enter text file paths (separated by commas): ")
-                    file_paths = [f.strip() for f in files_input.split(",")]
-                # else:
-                #     start_dir = console.input("Enter starting directory (press Enter for current directory): ") or "."
-                #     file_paths = select_files_interactively('.txt', start_dir)
-                    
-                if file_paths:
-                    output_dir = console.input("Enter the output directory (press Enter to use 'output'): ") or "output"
-                    process_text_files(file_paths, output_dir)
-                else:
-                    console.print("[yellow]No files selected.")
-            elif choice == "4":
-                break
-                
-            else:
-                console.print("[red]Invalid choice. Please try again.")
-                
-    except KeyboardInterrupt:
-        console.print("\n[red]Exiting...")
 
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Batch Audio Processing with Whisper and LiteLLM')
+    group = parser.add_mutually_exclusive_group(required=True)
+    
+    group.add_argument('-a', '--audio', action='store_true', help='Process audio files in the default "inputs" folder')
+    group.add_argument('-t', '--text', nargs='+', help='Process specific text files for response generation')
+    
+    args = parser.parse_args()
+    
+    if args.audio:
+        console.print("[cyan]Processing audio files in the default 'inputs' folder.")
+        process_folder(os.environ.get("FOLDER", "inputs"))
+        
+    elif args.text:
+        console.print("[cyan]Processing text files for response generation.")
+        output_dir = "response"
+        process_text_files(args.text, output_dir)
+        
     console.print("[blue]Processing completed.")
