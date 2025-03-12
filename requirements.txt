@@ -3,5 +3,4 @@ numpy==1.26.4
 langchain
 rich
 langchain-community
-soundfile
 litellm
