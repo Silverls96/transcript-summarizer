@@ -22,6 +22,7 @@ This tool automates the process of transcribing audio files and generating intel
 - **OpenRouter API Key**: Needed if using OpenRouter for LiteLLM access.
 - **Rich Console**: For enhanced console output.
 - **Litellm Library**: For interacting with LiteLLM.
+- **ffmpeg**: For load audio.
 
 ### Installation
 
@@ -29,6 +30,11 @@ To install the required packages, run:
 
 ```bash
 pip install -r requirements.txt
+```
+
+To install ffmpeg, run:
+```bash
+choco install ffmpeg (https://chocolatey.org/install)
 ```
 
 ## Usage
@@ -53,9 +59,11 @@ python app.py -t file1.txt file2.txt
 
 Set the following environment variables in a `.env` file:
 
-- `OPENROUTER_API_KEY`: Your OpenRouter API key.
+- `API_KEY`: Your OpenRouter API key.
 - `LLM_MODEL`: The LiteLLM model to use.
-- `FILE`: The folder where your .wav or audio files located (Optional)
+- `FOLDER`: The folder where your .wav or audio files located (Optional)
+- `API_VERSION`: The API version of the models (Optional)
+- `LLM_URL`: The url base api of the models (Optional)
 
 ### Run Bat File
 ```bash
