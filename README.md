@@ -60,7 +60,7 @@ python app.py -t file1.txt file2.txt
 Set the following environment variables in a `.env` file:
 
 - `API_KEY`: Your OpenRouter API key.
-- `LLM_MODEL`: The LiteLLM model to use.
+- `LLM_MODEL`: The LiteLLM model to use. (e.g openrouter/deepseek/deepseek-r1-zero:free, azure_ai/DeepSeek-R1)
 - `FOLDER`: The folder where your .wav or audio files located (Optional)
 - `API_VERSION`: The API version of the models (Optional)
 - `LLM_URL`: The url base api of the models (Optional)
