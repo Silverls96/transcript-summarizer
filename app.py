@@ -2,13 +2,14 @@ import os
 import time
 import whisper
 import argparse
+import shutil
 from rich.console import Console
 from dotenv import load_dotenv
 from litellm import completion
 from prompt import PROMPT
 
 # Load environment variables
-load_dotenv()
+load_dotenv(override=True)
 
 # Initialize console
 console = Console()
@@ -17,8 +18,10 @@ console = Console()
 stt = whisper.load_model("turbo")
 
 # Get API key and model
-api_key = os.environ.get("OPENROUTER_API_KEY")
+api_key = os.environ.get("API_KEY")
 api_model = os.environ.get("LLM_MODEL")
+api_version = os.environ.get("API_VERSION")
+api_base_url = os.environ.get("LLM_URL")
 
 def get_llm_response(text: str) -> str:
     """
@@ -31,9 +34,11 @@ def get_llm_response(text: str) -> str:
         str: The generated response.
     """
     response = completion(
-        model=api_model,  # Using Deepseek via OpenRouter
+        model=api_model,
         messages=[{"role": "user", "content": PROMPT.format(text=text)}],
-        api_key=api_key
+        api_base=api_base_url,
+        api_key=api_key,
+        api_version=api_version
     )
     
     # Extract the response content
@@ -69,18 +74,6 @@ def process_audio_file(file_path):
         file_path (str): Path to the audio file.
     """
     console.print(f"[cyan]Processing file: {file_path}")
-    
-    # # Load audio file
-    # # load audio and pad/trim it to fit 30 seconds
-    # with console.status(f"Loading audio file {os.path.basename(file_path)}...", spinner="earth"):
-    #     audio = whisper.load_audio(file_path)
-    #     audio = whisper.pad_or_trim(audio)
-
-    #     # make log-Mel spectrogram and move to the same device as the model
-    #     mel = whisper.log_mel_spectrogram(audio, stt.dims.n_mels).to(stt.device)
-    # # Transcribe
-    # with console.status("Transcribing...", spinner="earth"):
-    #     transcription = transcribe_mel(mel)
         
     # Transcribe with timer
     start_transcription = time.time()
@@ -136,11 +129,11 @@ def process_folder(folder_path, output_dir=None):
     if not os.path.exists(folder_path):
         console.print(f"[red]Folder {folder_path} does not exist.")
         return
-        
-    # Create output directory if it doesn't exist
-    if output_dir and not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-        
+
+    # after finish transcribe put into archive folder
+    archive_dir = "archives"
+    os.makedirs(archive_dir, exist_ok=True)
+
     # Get all .wav files in the folder
     wav_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) 
                 if f.lower()]
@@ -150,6 +143,7 @@ def process_folder(folder_path, output_dir=None):
         return
         
     console.print(f"[blue]Found {len(wav_files)} .wav files in {folder_path}")
+    
     
     # Process each file
     for file_path in wav_files:
@@ -161,8 +155,20 @@ def process_folder(folder_path, output_dir=None):
             continue  # Skip to the next file
 
         try:
-            process_audio_file(file_path, output_dir)
-            # results.append((file_path, result))
+            process_audio_file(file_path)
+
+            # Move the file to the archive directory after processing
+            file_name = os.path.basename(file_path)
+            archive_path = os.path.join(archive_dir, file_name)
+
+            # Handle case where a file with the same name might exist in the archive
+            if os.path.exists(archive_path):
+                base, ext = os.path.splitext(file_name)
+                archive_path = os.path.join(archive_dir, f"{base}_{int(time.time())}{ext}")
+            
+            shutil.move(file_path, archive_path)
+            console.print(f"[green]Moved {file_name} to archive folder")
+
         except Exception as e:
             console.print(f"[red]Error processing {file_path}: {str(e)}")
 
